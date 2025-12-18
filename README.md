@@ -12,7 +12,7 @@ It works by appending events to a line-delimited manifest file (`manifest.jsonl`
 From PyPI:
 
 ```bash
-pip install allye-data-connector
+pip install allye_data_connector
 ```
 
 From source (development):
