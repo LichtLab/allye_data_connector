@@ -1,49 +1,105 @@
 # allye_data_connector
 
-Python から `pandas.DataFrame` を送受信するためのローカルコネクタです。
+`allye_data_connector` is a local connector that lets you exchange `pandas.DataFrame` objects between Python and Allye widgets.
 
-- Python 側: `send_datafame(df)` / `get_datafame(table_name)`
-- 連携方式: `~/.alley_secret/manifest.jsonl`（追記）+ 共有ストレージ（小さければ OS shared memory / 大きければ mmap 可能なファイル）
+It works by appending events to a line-delimited manifest file (`manifest.jsonl`) and storing the actual Arrow payload either in:
 
-## インストール（開発中）
+- OS shared memory (fast, for smaller data), or
+- a memory-mappable file on disk (for larger data).
+
+## Installation
+
+From PyPI:
+
+```bash
+pip install allye-data-connector
+```
+
+From source (development):
 
 ```bash
 pip install -e .
 ```
 
-## 使い方
+If you haven't installed Allye yet, please download and install it from [here](https://www.ai-allye.com/).
+
+## Quickstart
+
+Send a DataFrame to Allye Canvas:
 
 ```python
 import pandas as pd
 import allye_data_connector as adc
 
 df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
-name = adc.send_dataframe(df, table_name="demo")
-
-df2 = adc.get_dataframe("demo")
+table_name = adc.send_dataframe(df, table_name="demo")
+print(table_name)
 ```
 
-## 保存先
+Use Allye's `Allye Data Receiver` widget to receive the dataframe data and perform visualizations.
 
-- デフォルト: `~/.allye_secrets/`
-  - manifest: `manifest.jsonl`
-  - payload: `payloads/`
-- 環境変数 `ALLYE_SECRET_DIR` で上書き可能
+![Allye Data Receiver](img/Receiver.png)
 
-## manifest.jsonl（概要）
 
-1行=1イベントの追記です。`status="ready"` の行だけを使えばOKで、`payload` に実体の参照が入ります。
 
-- `payload.transport`: `file_arrow_ipc_v1` または `shm_arrow_stream_v1`
-- `payload.locator`: `*.arrow` ファイルパス or shared memory 名
 
-Allye widget 側が送信する場合は `producer="allye"` を推奨します（Python側 `get_dataframe(..., producer="allye")` のフィルタに使えます）。
 
-## 掃除（任意）
+Get Data from Canvas / Read it back:
 
-`ttl_sec` を付けて送った payload は `gc(dry_run=False)` で期限切れ削除できます。
+Use Allye's `Allye Data Transmitter` widget to send Allye data, receive it on the Jupyter side, and execute subsequent processing.
 
-## 注意
+![Allye Data Transmitter](img/Transmitter.png)
 
-- 200列×1000万行級は「共有メモリ1発」だと OS 制約に当たりやすいので、本実装は自動でファイル（mmap可能）へ退避します。
-- dtype は pandas を前提にし、シリアライズ形式は Apache Arrow IPC です。
+```python
+df2 = adc.get_dataframe("demo")
+print(df2.head())
+```
+
+Wait for a DataFrame to appear (polling):
+
+```python
+df3 = adc.get_dataframe("from_widget", producer="allye", wait=True, timeout_sec=30)
+```
+
+List available tables:
+
+```python
+tables = adc.list_tables()
+for t in tables:
+    print(t["table_name"], t["transport"], t["shape"])
+```
+
+
+## How it works (high level)
+
+1. `send_dataframe()` appends a `status="writing"` event to `manifest.jsonl`.
+2. The DataFrame is serialized to Apache Arrow:
+   - `transport="auto"` uses shared memory when the payload is below `max_shm_bytes`
+   - otherwise it falls back to writing Arrow IPC files under `payloads/` (chunked by `chunk_rows`)
+3. A final `status="ready"` event is appended with a `payload` reference (transport + locator).
+4. `get_dataframe()` scans the manifest for the latest `status="ready"` entry matching `table_name` (and optional `producer`),
+   then loads the Arrow payload back into a DataFrame.
+
+## Features
+
+- Send/receive DataFrames with `send_dataframe()` and `get_dataframe()`
+- Local, file-based coordination via `manifest.jsonl` (append-only)
+- Automatic transport selection (`transport="auto"`) based on size
+- Optional TTL + garbage collection for payload cleanup (`gc()`)
+- Producer filtering (e.g., read only entries produced by Allye widgets)
+
+
+## Cleanup (optional)
+
+If you send with `ttl_sec=...`, the payload gets an expiration timestamp. You can remove expired payloads with:
+
+```python
+adc.gc(dry_run=False)
+```
+
+`gc(dry_run=True)` (default) only reports what would be removed.
+
+## Notes
+
+- This is a local IPC-oriented connector; it does not do networking or authentication.
+- Very large DataFrames may exceed OS shared memory limits; the implementation automatically falls back to disk-backed Arrow files.
