@@ -25,7 +25,9 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/LichtLab/allye_data_connector"
 Repository = "https://github.com/LichtLab/allye_data_connector/tree/main"
+Issues = "https://github.com/LichtLab/allye_data_connector/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
