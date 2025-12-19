@@ -29,11 +29,11 @@ Send a DataFrame to Allye Canvas:
 
 ```python
 import pandas as pd
-import allye_data_connector as adc
+import seaborn as sns
 
-df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"]})
-table_name = adc.send_dataframe(df, table_name="demo")
-print(table_name)
+import allye_data_connector
+df = sns.load_dataset("iris")
+allye_data_connector.send_dataframe(df, table_name='iris')
 ```
 
 Use Allye's `Allye Data Receiver` widget to receive the dataframe data and perform visualizations.
@@ -51,14 +51,8 @@ Use Allye's `Allye Data Transmitter` widget to send Allye data, receive it on th
 ![Allye Data Transmitter](img/Transmitter.png)
 
 ```python
-df2 = adc.get_dataframe("demo")
-print(df2.head())
-```
-
-Wait for a DataFrame to appear (polling):
-
-```python
-df3 = adc.get_dataframe("from_widget", producer="allye", wait=True, timeout_sec=30)
+df = allye_data_connector.get_dataframe('iris_setosa_versicolor')
+df.head()
 ```
 
 List available tables:
