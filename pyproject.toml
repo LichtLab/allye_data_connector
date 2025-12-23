@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "allye_data_connector"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local DataFrame connector between Python and Allye widgets via manifest.jsonl + shared storage."
 readme = "README.md"
 requires-python = ">=3.9"
