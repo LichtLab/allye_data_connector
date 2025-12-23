@@ -46,6 +46,7 @@ def _notify_canvas_receiver(
     table_name: str,
     *,
     create_if_missing: bool,
+    create_new: bool,
     refresh_manifest: bool,
     timeout_sec: float,
 ) -> dict[str, Any]:
@@ -55,6 +56,7 @@ def _notify_canvas_receiver(
     payload = {
         "table_name": table_name,
         "create_if_missing": bool(create_if_missing),
+        "create_new": bool(create_new),
         "refresh_manifest": bool(refresh_manifest),
     }
     url = base_url.rstrip("/") + "/v1/data-receiver/load"
@@ -109,6 +111,7 @@ def send_dataframe(
     shm_unlink_on_read: bool = True,
     notify_canvas: bool = True,
     notify_create_widget: bool = True,
+    notify_create_new_widget: bool = True,
     notify_refresh_manifest: bool = True,
     notify_timeout_sec: float = 1.0,
     metadata: dict[str, Any] | None = None,
@@ -133,6 +136,7 @@ def send_dataframe(
         result = _notify_canvas_receiver(
             resolved_name,
             create_if_missing=notify_create_widget,
+            create_new=notify_create_new_widget,
             refresh_manifest=notify_refresh_manifest,
             timeout_sec=notify_timeout_sec,
         )
