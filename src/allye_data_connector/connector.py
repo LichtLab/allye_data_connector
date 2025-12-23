@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Optional
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
@@ -23,6 +26,77 @@ class SendOptions:
     producer: str = "python"
 
 
+_CANVAS_API_INFO_PATH = Path("~/.allye_secrets/allye_canvas_api.json").expanduser()
+
+
+def _resolve_canvas_api_url() -> Optional[str]:
+    env = (os.environ.get("ALLYE_CANVAS_API_URL") or "").strip()
+    if env:
+        return env
+    try:
+        raw = _CANVAS_API_INFO_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except Exception:
+        return None
+    base_url = str(data.get("base_url") or "").strip()
+    return base_url or None
+
+
+def _notify_canvas_receiver(
+    table_name: str,
+    *,
+    create_if_missing: bool,
+    refresh_manifest: bool,
+    timeout_sec: float,
+) -> dict[str, Any]:
+    base_url = _resolve_canvas_api_url()
+    if not base_url:
+        return {"ok": False, "error": "api_url_missing"}
+    payload = {
+        "table_name": table_name,
+        "create_if_missing": bool(create_if_missing),
+        "refresh_manifest": bool(refresh_manifest),
+    }
+    url = base_url.rstrip("/") + "/v1/data-receiver/load"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(req, timeout=timeout_sec) as resp:
+            resp_body = resp.read()
+    except Exception as exc:  # noqa: BLE001 - surface as status
+        return {"ok": False, "error": f"request_failed: {exc}"}
+    try:
+        data = json.loads(resp_body.decode("utf-8"))
+    except Exception:  # noqa: BLE001 - surface as status
+        return {"ok": False, "error": "invalid_response"}
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "invalid_response"}
+    data.setdefault("ok", False)
+    return data
+
+
+def _log_canvas_notify_result(table_name: str, result: dict[str, Any]) -> None:
+    if result.get("ok"):
+        created = bool(result.get("created", False))
+        loaded = bool(result.get("loaded", True))
+        if created and loaded:
+            print(
+                f"[allye_data_connector] Allye Data Receiver created and loaded table '{table_name}'."
+            )
+        elif loaded:
+            print(f"[allye_data_connector] Allye Data Receiver loaded table '{table_name}'.")
+        else:
+            print(
+                "[allye_data_connector] Allye Data Receiver was created, but load did not complete."
+            )
+        return
+    error = result.get("error", "unknown_error")
+    print(
+        "[allye_data_connector] Failed to create/load Allye Data Receiver "
+        f"(error={error}). Please load the table manually."
+    )
+
+
 def send_dataframe(
     df: pd.DataFrame,
     table_name: str | None = None,
@@ -32,6 +106,11 @@ def send_dataframe(
     max_shm_bytes: int = 64 * 1024 * 1024,
     chunk_rows: int = 500_000,
     ttl_sec: int | None = None,
+    shm_unlink_on_read: bool = True,
+    notify_canvas: bool = True,
+    notify_create_widget: bool = True,
+    notify_refresh_manifest: bool = True,
+    notify_timeout_sec: float = 1.0,
     metadata: dict[str, Any] | None = None,
 ) -> str:
     options = SendOptions(
@@ -42,7 +121,23 @@ def send_dataframe(
         ttl_sec=ttl_sec,
         producer="python",
     )
-    return _send_dataframe_impl(df=df, secret_dir=secret_dir, options=options, metadata=metadata)
+    merged_metadata = dict(metadata or {})
+    merged_metadata["shm_unlink_on_read"] = bool(shm_unlink_on_read)
+    resolved_name = _send_dataframe_impl(
+        df=df,
+        secret_dir=secret_dir,
+        options=options,
+        metadata=merged_metadata,
+    )
+    if notify_canvas:
+        result = _notify_canvas_receiver(
+            resolved_name,
+            create_if_missing=notify_create_widget,
+            refresh_manifest=notify_refresh_manifest,
+            timeout_sec=notify_timeout_sec,
+        )
+        _log_canvas_notify_result(resolved_name, result)
+    return resolved_name
 
 
 def _send_dataframe_impl(
